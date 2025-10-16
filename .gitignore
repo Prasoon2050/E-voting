@@ -1,0 +1,38 @@
+# Node.js
+node_modules/
+.env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# pnpm-debug.log*
+
+# Build artifacts
+build/
+dist/
+out/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+logs/
+
+# Uploads/Temporary files
+uploads/
+tmp/
+
+# Frontend specific (if client is a separate directory)
+client/build/
+client/node_modules/
+
+# Backend specific (if server is a separate directory)
+server/node_modules/
+server/.env
