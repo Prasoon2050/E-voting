@@ -1,61 +1,98 @@
-"use strict";
-
+const Candidate = require("../models/Candidate");
+const Vote = require("../models/Vote");
+const ResultStatus = require("../models/ResultStatus");
 const { getContract } = require("../config/fabric-connection");
+const { verifyVoterFace } = require("./voterController");
 
-exports.registerVoter = async (req, res) => {
-  const { voterId } = req.body;
-  if (!voterId) return res.status(400).json({ error: "voterId required" });
-  let gw;
+async function listCandidates(req, res) {
   try {
-    const result = await getContract();
-    const contract = result.contract;
-    gw = result.gateway;
+    const candidates = await Candidate.find({}, { _id: 0, __v: 0 }).sort({
+      candidateId: 1,
+    });
+    res.json({ candidates });
+  } catch (err) {
+    console.error("listCandidates error", err);
+    res.status(500).json({ error: "Failed to load candidates" });
+  }
+}
 
-    await contract.submitTransaction("RegisterVoter", voterId);
+async function castVote(req, res) {
+  try {
+    if (!req.user || req.user.role !== "voter") {
+      return res.status(403).json({ error: "Voter authentication required" });
+    }
+
+    const { candidateId } = req.body;
+    if (!candidateId) {
+      return res.status(400).json({ error: "candidateId is required" });
+    }
+
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: "Live face image is required" });
+    }
+
+    const candidate = await Candidate.findOne({ candidateId });
+    if (!candidate) {
+      return res.status(404).json({ error: "Candidate not found" });
+    }
+
+    const resultState = await ResultStatus.findById("global");
+    if (resultState && resultState.status === "published") {
+      return res
+        .status(400)
+        .json({ error: "Voting has closed. Results already published." });
+    }
+
+    const existingVote = await Vote.findOne({ voterId: req.user.voterId });
+    if (existingVote) {
+      return res.status(409).json({ error: "Vote already cast" });
+    }
+
+    const { isMatch, similarity } = await verifyVoterFace(
+      req.user.voterId,
+      req.file.buffer
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({ error: "Face verification failed" });
+    }
+
+    let gateway;
+    let ledgerResponse;
+    try {
+      const { contract, gateway: gw } = await getContract();
+      gateway = gw;
+      const resultBuffer = await contract.submitTransaction(
+        "CastVote",
+        candidateId
+      );
+      ledgerResponse = JSON.parse(resultBuffer.toString());
+    } finally {
+      if (gateway) {
+        gateway.disconnect();
+      }
+    }
+
+    const vote = await Vote.create({
+      voterId: req.user.voterId,
+      faceSimilarity: similarity,
+    });
+
     res.json({
-      success: true,
-      message: `Voter ${voterId} registered on ledger`,
+      message: "Vote recorded successfully",
+      ledger: ledgerResponse,
+      vote: {
+        voterId: vote.voterId,
+        faceSimilarity: vote.faceSimilarity,
+      },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (gw) gw.disconnect();
+    console.error("castVote error", err);
+    res.status(500).json({ error: "Failed to cast vote" });
   }
-};
+}
 
-exports.castVote = async (req, res) => {
-  const { voterId, candidateId } = req.body;
-  if (!voterId || !candidateId)
-    return res.status(400).json({ error: "voterId and candidateId required" });
-  let gw;
-  try {
-    const result = await getContract(voterId);
-    const contract = result.contract;
-    gw = result.gateway;
-
-    // Submit CastVote transaction -- assumes identity for voterId exists in wallet
-    await contract.submitTransaction("CastVote", voterId, candidateId);
-    res.json({ success: true, message: "Vote cast successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (gw) gw.disconnect();
-  }
-};
-
-exports.queryResults = async (req, res) => {
-  let gw;
-  try {
-    const result = await getContract();
-    const contract = result.contract;
-    gw = result.gateway;
-
-    const evalResult = await contract.evaluateTransaction("QueryResults");
-    const results = JSON.parse(evalResult.toString());
-    res.json({ success: true, results });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  } finally {
-    if (gw) gw.disconnect();
-  }
+module.exports = {
+  listCandidates,
+  castVote,
 };

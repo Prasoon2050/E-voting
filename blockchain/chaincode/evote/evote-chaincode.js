@@ -4,119 +4,84 @@ const { Contract } = require("fabric-contract-api");
 
 class EvoteContract extends Contract {
   async InitLedger(ctx) {
-    // Optional: seed with example candidates
-    const candidates = [
-      { ID: "C1", Name: "Alice", Votes: 0 },
-      { ID: "C2", Name: "Bob", Votes: 0 },
-    ];
-    for (const cand of candidates) {
-      await ctx.stub.putState(
-        "CAND_" + cand.ID,
-        Buffer.from(JSON.stringify(cand))
-      );
-    }
+    await ctx.stub.putState("TOTAL_VOTES", Buffer.from("0"));
     return "Ledger initialized";
   }
 
-  // Register a candidate: stores {ID, Name, Votes}
-  async RegisterCandidate(ctx, id, name) {
+  async RegisterCandidate(ctx, id, name, party = "") {
     if (!id || !name) {
       throw new Error("RegisterCandidate requires id and name");
     }
-    const key = "CAND_" + id;
+    const key = this._candidateKey(id);
     const exists = await this._exists(ctx, key);
     if (exists) {
       throw new Error(`Candidate ${id} already exists`);
     }
-    const candidate = { ID: id, Name: name, Votes: 0 };
+    const candidate = { ID: id, Name: name, Party: party, Votes: 0 };
     await ctx.stub.putState(key, Buffer.from(JSON.stringify(candidate)));
     return JSON.stringify(candidate);
   }
 
-  // Register a voter: stores {ID, Voted}
-  async RegisterVoter(ctx, id) {
-    if (!id) {
-      throw new Error("RegisterVoter requires id");
-    }
-    const key = "VOTER_" + id;
-    const exists = await this._exists(ctx, key);
-    if (exists) {
-      throw new Error(`Voter ${id} already exists`);
-    }
-    const voter = { ID: id, Voted: false };
-    await ctx.stub.putState(key, Buffer.from(JSON.stringify(voter)));
-    return JSON.stringify(voter);
-  }
-
-  // Cast a vote: checks voter exists & hasn't voted, candidate exists, increments votes, marks voter as voted
-  async CastVote(ctx, voterId, candidateId) {
-    if (!voterId || !candidateId) {
-      throw new Error("CastVote requires voterId and candidateId");
+  async CastVote(ctx, candidateId) {
+    if (!candidateId) {
+      throw new Error("CastVote requires candidateId");
     }
 
-    const voterKey = "VOTER_" + voterId;
-    const candKey = "CAND_" + candidateId;
-
-    const voterBytes = await ctx.stub.getState(voterKey);
-    if (!voterBytes || voterBytes.length === 0) {
-      throw new Error(`Voter ${voterId} not found`);
-    }
-    const voter = JSON.parse(voterBytes.toString());
-    if (voter.Voted) {
-      throw new Error(`Voter ${voterId} has already voted`);
-    }
-
-    const candBytes = await ctx.stub.getState(candKey);
+    const key = this._candidateKey(candidateId);
+    const candBytes = await ctx.stub.getState(key);
     if (!candBytes || candBytes.length === 0) {
       throw new Error(`Candidate ${candidateId} not found`);
     }
+
     const candidate = JSON.parse(candBytes.toString());
+    const currentVotes = parseInt(candidate.Votes || 0, 10);
+    candidate.Votes = currentVotes + 1;
+    await ctx.stub.putState(key, Buffer.from(JSON.stringify(candidate)));
 
-    // Update candidate votes
-    candidate.Votes = parseInt(candidate.Votes) + 1;
-    await ctx.stub.putState(candKey, Buffer.from(JSON.stringify(candidate)));
+    const totalVotes = (await this._getTotalVotes(ctx)) + 1;
+    await ctx.stub.putState("TOTAL_VOTES", Buffer.from(totalVotes.toString()));
 
-    // Mark voter as voted
-    voter.Voted = true;
-    await ctx.stub.putState(voterKey, Buffer.from(JSON.stringify(voter)));
-
-    // Emit an event for off-chain listeners (optional)
     const eventPayload = {
-      voterId,
       candidateId,
+      votes: candidate.Votes,
+      totalVotes,
       timestamp: new Date().toISOString(),
     };
     ctx.stub.setEvent("VoteCast", Buffer.from(JSON.stringify(eventPayload)));
 
     return JSON.stringify({
-      success: true,
-      voter: voterId,
-      candidate: candidateId,
+      candidateId,
+      votes: candidate.Votes,
+      totalVotes,
     });
   }
 
-  // Query results: return all candidates with vote counts
   async QueryResults(ctx) {
+    return this.GetResults(ctx);
+  }
+
+  async GetResults(ctx) {
     const iterator = await ctx.stub.getStateByRange("CAND_", "CAND_￿");
-    const results = [];
+    const candidates = [];
     while (true) {
       const res = await iterator.next();
       if (res.value && res.value.value.toString()) {
         const record = JSON.parse(res.value.value.toString("utf8"));
-        results.push(record);
+        candidates.push(record);
       }
       if (res.done) {
         await iterator.close();
         break;
       }
     }
-    return JSON.stringify(results);
+
+    const totalVotes = await this._getTotalVotes(ctx);
+    return JSON.stringify({ candidates, totalVotes });
   }
 
-  // Query a single candidate
   async QueryCandidate(ctx, id) {
     if (!id) throw new Error("QueryCandidate requires id");
-    const key = "CAND_" + id;
+    const key = this._candidateKey(id);
     const bytes = await ctx.stub.getState(key);
     if (!bytes || bytes.length === 0) {
       throw new Error(`Candidate ${id} not found`);
@@ -124,18 +89,19 @@ class EvoteContract extends Contract {
     return bytes.toString();
   }
 
-  // Query a single voter
-  async QueryVoter(ctx, id) {
-    if (!id) throw new Error("QueryVoter requires id");
-    const key = "VOTER_" + id;
-    const bytes = await ctx.stub.getState(key);
-    if (!bytes || bytes.length === 0) {
-      throw new Error(`Voter ${id} not found`);
-    }
-    return bytes.toString();
+  _candidateKey(id) {
+    return "CAND_" + id;
   }
 
-  // helper: check existence
+  async _getTotalVotes(ctx) {
+    const bytes = await ctx.stub.getState("TOTAL_VOTES");
+    if (!bytes || bytes.length === 0) {
+      return 0;
+    }
+    const asNumber = parseInt(bytes.toString(), 10);
+    return Number.isNaN(asNumber) ? 0 : asNumber;
+  }
+
   async _exists(ctx, key) {
     const data = await ctx.stub.getState(key);
     return !!data && data.length > 0;

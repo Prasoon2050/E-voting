@@ -4,7 +4,7 @@
   "main": "evote-chaincode.js",
   "license": "Apache-2.0",
   "dependencies": {
-    "fabric-contract-api": "^2.6.0",
-    "fabric-shim": "^2.6.0"
+    "fabric-contract-api": "^2.5.8",
+    "fabric-shim": "^2.5.8"
   }
 }
