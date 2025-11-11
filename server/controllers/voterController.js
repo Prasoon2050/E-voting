@@ -45,7 +45,7 @@ async function registerVoter(req, res) {
     }
 
     const voterId = await generateUniqueVoterId();
-    const s3Key = `faces/${voterId}.jpg`;
+    const s3Key = `${voterId}.jpg`;
     await uploadToS3(req.file.buffer, s3Key, req.file.mimetype || "image/jpeg");
 
     const passwordHash = await bcrypt.hash(password, 10);

@@ -1,7 +1,5 @@
 const Candidate = require("../models/Candidate");
 const Vote = require("../models/Vote");
-const ResultStatus = require("../models/ResultStatus");
-const { getContract } = require("../config/fabric-connection");
 const { verifyVoterFace } = require("./voterController");
 
 async function listCandidates(req, res) {
@@ -36,13 +34,6 @@ async function castVote(req, res) {
       return res.status(404).json({ error: "Candidate not found" });
     }
 
-    const resultState = await ResultStatus.findById("global");
-    if (resultState && resultState.status === "published") {
-      return res
-        .status(400)
-        .json({ error: "Voting has closed. Results already published." });
-    }
-
     const existingVote = await Vote.findOne({ voterId: req.user.voterId });
     if (existingVote) {
       return res.status(409).json({ error: "Vote already cast" });
@@ -57,32 +48,17 @@ async function castVote(req, res) {
       return res.status(401).json({ error: "Face verification failed" });
     }
 
-    let gateway;
-    let ledgerResponse;
-    try {
-      const { contract, gateway: gw } = await getContract();
-      gateway = gw;
-      const resultBuffer = await contract.submitTransaction(
-        "CastVote",
-        candidateId
-      );
-      ledgerResponse = JSON.parse(resultBuffer.toString());
-    } finally {
-      if (gateway) {
-        gateway.disconnect();
-      }
-    }
-
     const vote = await Vote.create({
       voterId: req.user.voterId,
+      candidateId,
       faceSimilarity: similarity,
     });
 
     res.json({
       message: "Vote recorded successfully",
-      ledger: ledgerResponse,
       vote: {
         voterId: vote.voterId,
+        candidateId: vote.candidateId,
         faceSimilarity: vote.faceSimilarity,
       },
     });

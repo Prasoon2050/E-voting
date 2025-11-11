@@ -49,7 +49,7 @@ export default function Layout() {
           <div>
             <div className="badge">
               <span>{role.toUpperCase()}</span>
-              <span>{user?.name || user?.email || user?.voterId || ""}</span>
+              <span>{user?.name || user?.email || user?.fullName || ""}</span>
             </div>
             <div style={{ marginTop: "1rem" }}>
               <button className="primary-btn" onClick={handleLogout}>

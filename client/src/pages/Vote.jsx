@@ -42,8 +42,8 @@ export default function Vote() {
 
     try {
       const payload = new FormData();
-      payload.set("candidateId", candidateId);
-      payload.set("image", capturedImage, `vote-${Date.now()}.jpg`);
+  payload.set("candidateId", candidateId);
+  payload.set("image", capturedImage, `vote-${Date.now()}.jpg`);
 
       const response = await fetch(`${API_BASE_URL}/api/votes/cast`, {
         method: "POST",
