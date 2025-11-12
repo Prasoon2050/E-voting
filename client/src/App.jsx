@@ -25,9 +25,14 @@ export default function App() {
           </Route>
 
           <Route path="/voter/login" element={<VoterLogin />} />
-
+          <Route
+            element={
+              <ProtectedRoute allowedRoles={["voter"]} redirectTo="/voter/login" />
+            }
+          >
             <Route path="/voter/vote" element={<Vote />} />
             <Route path="/voter/results" element={<Results />} />
+          </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
